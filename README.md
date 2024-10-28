@@ -22,3 +22,14 @@ UUID can be suboptimal for many uses-cases because:
 - No special characters (URL safe)
 - Monotonic sort order (correctly detects and handles the same millisecond)
 
+## Test Coverage
+- ULID Generation: Validates timestamp and randomness.
+- Encoding: Ensures ULIDs are correctly encoded into Base32 strings.
+- Decoding: Confirms accurate decoding from Base32 strings.
+- Monotonicity: Tests that ULIDs generated within the same millisecond are monotonically increasing.
+- Overflow Handling: Checks proper error handling when randomness overflows.
+- Edge Cases: Validates behavior with maximum ULID values and invalid inputs.
+
+## Specification
+For detailed information on the ULID specification, refer to the [ULID Specification](https://github.com/ulid/spec).
+
