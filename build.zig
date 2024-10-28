@@ -14,12 +14,16 @@ pub fn build(b: *std.Build) void {
     b.installArtifact(lib);
 
     const exe = b.addExecutable(.{
-        .name = "ulid.zig",
-        .root_source_file = b.path("src/main.zig"),
+        .name = "basic",
+        .root_source_file = b.path("examples/basic/main.zig"),
         .target = target,
         .optimize = optimize,
     });
 
+    const ulid_mod = b.addModule("ulid", .{
+        .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/ulid.zig" } },
+    });
+    exe.root_module.addImport("ulid", ulid_mod);
     b.installArtifact(exe);
 
     const run_cmd = b.addRunArtifact(exe);
