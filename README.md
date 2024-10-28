@@ -1,5 +1,7 @@
 # ulid.zig
+[![Zig](https://img.shields.io/badge/-Zig-F7A41D?style=flat&logo=zig&logoColor=white)](https://ziglang.org/)
 ![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/hendriknielaender/ulid.zig/unit-test.yml)
+[![GitHub Release](https://img.shields.io/github/v/release/hendriknielaender/ulid.zig)](https://github.com/hendriknielaender/ulid.zig/releases)
 ![GitHub code size in bytes](https://img.shields.io/github/languages/code-size/hendriknielaender/ulid.zig)
 
 
