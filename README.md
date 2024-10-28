@@ -1,4 +1,7 @@
 # ulid.zig
+![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/hendriknielaender/ulid.zig/unit-test.yml)
+![GitHub code size in bytes](https://img.shields.io/github/languages/code-size/hendriknielaender/ulid.zig)
+
 
 A **Universally Unique Lexicographically Sortable Identifier (ULID)** implementation for Zig, providing a robust and efficient way to generate unique identifiers that are both time-based and random.
 
