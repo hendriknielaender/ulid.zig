@@ -4,20 +4,21 @@ A **Universally Unique Lexicographically Sortable Identifier (ULID)** implementa
 
 ## Why ULID?
 
-ULIDs offer several advantages over traditional UUIDs:
+UUID can be suboptimal for many uses-cases because:
 
-- **Compact Encoding:** ULIDs encode 128 bits of data into a **26-character** string, compared to UUID's 36 characters.
-- **Lexicographical Order:** ULIDs are **lexicographically sortable**, making them ideal for database indexing and ordered storage.
-- **High Uniqueness:** With **1.21e+24** unique ULIDs per millisecond, the chance of collision is negligible.
-- **Readable:** Uses **Crockford's Base32** encoding, excluding ambiguous characters (I, L, O, U) for better readability.
-- **Monotonicity:** Ensures that ULIDs generated within the same millisecond are **monotonically increasing**, preserving sort order.
+- It isn't the most character efficient way of encoding 128 bits of randomness
+- UUID v1/v2 is impractical in many environments, as it requires access to a unique, stable MAC address
+- UUID v3/v5 requires a unique seed and produces randomly distributed IDs, which can cause fragmentation in many data structures
+- UUID v4 provides no other information than randomness which can cause fragmentation in many data structures
 
 ## Features
 
-- **128-bit Compatibility:** Compatible with UUIDs, allowing seamless integration where UUIDs are expected.
-- **Crockford's Base32 Encoding:** Efficient and readable encoding without ambiguous characters.
-- **Monotonic Generation:** Guarantees that ULIDs generated within the same millisecond are ordered correctly.
-- **Cryptographically Secure Randomness:** Utilizes secure PRNGs to ensure randomness.
-- **Error Handling:** Comprehensive error handling for invalid inputs and overflow conditions.
-- **Comprehensive Testing:** Robust unit tests covering all aspects of ULID generation, encoding, and decoding.
+- 128-bit compatibility with UUID
+- 1.21e+24 unique ULIDs per millisecond
+- Lexicographically sortable!
+- Canonically encoded as a 26 character string, as opposed to the 36 character UUID
+- Uses Crockford's base32 for better efficiency and readability (5 bits per character)
+- Case insensitive
+- No special characters (URL safe)
+- Monotonic sort order (correctly detects and handles the same millisecond)
 
