@@ -5,8 +5,8 @@ pub const UlidError = error{
     invalid_length,
     invalid_character,
     overflow,
-    encode_error,
-    decode_error,
+    encode,
+    decode,
 };
 
 pub const Ulid = struct {
@@ -39,8 +39,7 @@ pub const Ulid = struct {
 
     /// Encodes the ULID into a 26-character Crockford's Base32 string.
     pub fn encode(self: Ulid, buffer: []u8) !void {
-        // Assert buffer length
-        if (buffer.len != 26) return UlidError.encode_error;
+        if (buffer.len != 26) return UlidError.encode;
 
         // Combine timestamp and randomness into a 128-bit number
         const time: u128 = @intCast(self.timestamp & 0xFFFFFFFFFFFF);
@@ -109,7 +108,7 @@ pub const UlidGenerator = struct {
     /// Generates a ULID ensuring monotonicity within the same millisecond.
     pub fn generate(self: *UlidGenerator, provided_timestamp: ?u64) !Ulid {
         const current_timestamp = if (provided_timestamp) |ts| ts else try get_current_timestamp();
-        var ulid: Ulid = undefined;
+        var ulid: Ulid = .{ .timestamp = current_timestamp, .randomness = [10]u8{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } };
 
         std.debug.print("Current timestamp: {}\n", .{current_timestamp});
         std.debug.print("Last timestamp: {}\n", .{self.last_timestamp});
@@ -118,51 +117,35 @@ pub const UlidGenerator = struct {
             std.debug.print("Same millisecond detected. Checking randomness for overflow.\n", .{});
 
             // Check if all bytes in randomness are 0xFF (indicating overflow)
-            var all_max = true;
-            for (self.last_randomness) |byte| {
-                if (byte != 0xFF) {
-                    all_max = false;
-                    break;
-                }
-            }
+            const all_max = std.mem.eql(u8, &self.last_randomness, &[10]u8{ 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF });
             if (all_max) {
                 std.debug.print("Randomness overflow detected. Returning overflow error.\n", .{});
                 return UlidError.overflow;
             }
 
-            // Increment randomness with carry using a for loop
+            // Increment randomness with carry
             std.debug.print("Incrementing randomness with carry.\n", .{});
             var carry: bool = true;
 
-            // Iterate from the last index (9) down to 0
             for (0..10) |j| {
-                const i = 9 - j; // Calculate the current index
+                const i = 9 - j;
                 const new_value = self.last_randomness[i] + 1;
                 self.last_randomness[i] = new_value;
                 carry = (new_value == 0);
 
                 std.debug.print("Randomness at index {d}: {d}\n", .{ i, new_value });
 
-                if (!carry) break; // No carry needed, exit early
+                if (!carry) break;
             }
 
             if (carry) {
-                // If carry is still true after the loop, it means all bytes were 0xFF
                 std.debug.print("Randomness overflow detected after loop.\n", .{});
                 return UlidError.overflow;
             }
 
-            ulid = Ulid{
-                .timestamp = current_timestamp,
-                .randomness = self.last_randomness,
-            };
-            std.debug.print("Generated ULID (same millisecond): timestamp={d}, randomness={d}\n", .{ ulid.timestamp, ulid.randomness });
+            ulid.randomness = self.last_randomness;
         } else {
-            // Generate a new ULID with a fresh randomness value
-            ulid = Ulid{
-                .timestamp = current_timestamp,
-                .randomness = generate_randomness(),
-            };
+            ulid.randomness = generate_randomness();
             self.last_randomness = ulid.randomness;
             self.last_timestamp = current_timestamp;
 
@@ -188,11 +171,8 @@ fn generate_randomness() [10]u8 {
 test "ULID generation produces valid timestamp and randomness" {
     const generated_ulid = try Ulid.generate();
 
-    // Verify timestamp is within 48 bits.
     try std.testing.expect(generated_ulid.timestamp <= 0xFFFFFFFFFFFF);
-
-    // Verify randomness is 10 bytes.
-    try std.testing.expect(generated_ulid.randomness[0..].len == 10);
+    try std.testing.expect(generated_ulid.randomness.len == 10);
 }
 
 test "ULID encoding produces a 26-character Base32 string" {
@@ -230,7 +210,6 @@ test "ULID decoding correctly parses a valid Base32 string" {
 
     // Verify that the decoded ULID matches the original
     try std.testing.expect(decoded_ulid.timestamp == ulid.timestamp);
-    // try std.testing.expect(std.mem.eql(u8, &decoded_ulid.randomness, &ulid.randomness));
     try std.testing.expect(std.mem.eql(u8, decoded_ulid.randomness[0..], ulid.randomness[0..]));
 }
 
@@ -385,7 +364,7 @@ test "ULID encoding fails with invalid buffer length" {
     var buffer: [25]u8 = undefined; // Invalid length
     const ulid = try Ulid.generate();
     const result = ulid.encode(&buffer);
-    try std.testing.expect(result == UlidError.encode_error);
+    try std.testing.expect(result == UlidError.encode);
 }
 //
 // test "Monotonic ULID generator correctly handles multiple byte increments with carry" {
