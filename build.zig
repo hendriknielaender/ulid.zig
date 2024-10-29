@@ -36,6 +36,32 @@ pub fn build(b: *std.Build) void {
     const run_step = b.step("run", "Run the app");
     run_step.dependOn(&run_cmd.step);
 
+    const fast = b.standardOptimizeOption(.{ .preferred_optimize_mode = std.builtin.OptimizeMode.ReleaseFast });
+
+    const bench = b.addExecutable(.{
+        .name = "bench",
+        .root_source_file = b.path("bench/bench.zig"),
+        .target = target,
+        .optimize = fast,
+    });
+
+    const opts = .{ .target = target, .optimize = optimize };
+    const zbench_module = b.dependency("zbench", opts).module("zbench");
+
+    bench.root_module.addImport("zbench", zbench_module);
+    bench.root_module.addImport("ulid", ulid_mod);
+    b.installArtifact(bench);
+
+    const bench_cmd = b.addRunArtifact(bench);
+
+    bench_cmd.step.dependOn(b.getInstallStep());
+    if (b.args) |args| {
+        bench_cmd.addArgs(args);
+    }
+
+    const bench_step = b.step("benchmark", "Run the benchmark");
+    bench_step.dependOn(&bench_cmd.step);
+
     const lib_unit_tests = b.addTest(.{
         .root_source_file = b.path("src/ulid.zig"),
         .target = target,

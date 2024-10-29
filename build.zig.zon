@@ -2,7 +2,12 @@
     .name = "ulid",
     .version = "0.0.1",
     .minimum_zig_version = "0.13.0",
-    .dependencies = .{},
+    .dependencies = .{
+        .zbench = .{
+            .url = "https://github.com/hendriknielaender/zbench/archive/refs/tags/v0.9.1.tar.gz",
+            .hash = "1220b19e117897a42abc5e58633766a3be92f9ebade400116afea57957bebe41aed0",
+        },
+    },
     .paths = .{
         "build.zig",
         "build.zig.zon",
