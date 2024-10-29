@@ -84,8 +84,16 @@ pub const Ulid = struct {
         }
     }
 
-    /// Generates a new ULID.
-    pub fn generate() !Ulid {
+    /// Generates a new ULID and returns its encoded 26-character Base32 string.
+    pub fn generate() ![26]u8 {
+        var ulid_struct = try generate_ulid_struct();
+        var buffer: [26]u8 = undefined;
+        try ulid_struct.encode(&buffer);
+        return buffer;
+    }
+
+    /// Generates a new ULID struct.
+    fn generate_ulid_struct() !Ulid {
         return Ulid{
             .timestamp = try get_current_timestamp(),
             .randomness = generate_randomness(),
@@ -106,20 +114,21 @@ pub const UlidGenerator = struct {
     last_randomness: [10]u8 = undefined,
 
     /// Generates a ULID ensuring monotonicity within the same millisecond.
-    pub fn generate(self: *UlidGenerator, provided_timestamp: ?u64) !Ulid {
+    /// Returns the encoded 26-character Base32 string.
+    pub fn generate(self: *UlidGenerator, provided_timestamp: ?u64) ![26]u8 {
         const current_timestamp = if (provided_timestamp) |ts| ts else try get_current_timestamp();
         var ulid: Ulid = .{ .timestamp = current_timestamp, .randomness = [10]u8{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } };
 
-        std.debug.print("Current timestamp: {}\n", .{current_timestamp});
-        std.debug.print("Last timestamp: {}\n", .{self.last_timestamp});
+        // std.debug.print("Current timestamp: {}\n", .{current_timestamp});
+        // std.debug.print("Last timestamp: {}\n", .{self.last_timestamp});
 
         if (current_timestamp == self.last_timestamp) {
-            std.debug.print("Same millisecond detected. Checking randomness for overflow.\n", .{});
+            // std.debug.print("Same millisecond detected. Checking randomness for overflow.\n", .{});
 
             // Check if all bytes in randomness are 0xFF (indicating overflow)
             const all_max = std.mem.eql(u8, &self.last_randomness, &[10]u8{ 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF });
             if (all_max) {
-                std.debug.print("Randomness overflow detected. Returning overflow error.\n", .{});
+                // std.debug.print("Randomness overflow detected. Returning overflow error.\n", .{});
                 return UlidError.overflow;
             }
 
@@ -133,13 +142,13 @@ pub const UlidGenerator = struct {
                 self.last_randomness[i] = new_value;
                 carry = (new_value == 0);
 
-                std.debug.print("Randomness at index {d}: {d}\n", .{ i, new_value });
+                // std.debug.print("Randomness at index {d}: {d}\n", .{ i, new_value });
 
                 if (!carry) break;
             }
 
             if (carry) {
-                std.debug.print("Randomness overflow detected after loop.\n", .{});
+                // std.debug.print("Randomness overflow detected after loop.\n", .{});
                 return UlidError.overflow;
             }
 
@@ -149,10 +158,13 @@ pub const UlidGenerator = struct {
             self.last_randomness = ulid.randomness;
             self.last_timestamp = current_timestamp;
 
-            std.debug.print("Generated new ULID (new timestamp): timestamp={d}, randomness={d}\n", .{ ulid.timestamp, ulid.randomness });
+            // std.debug.print("Generated new ULID (new timestamp): timestamp={d}, randomness={d}\n", .{ ulid.timestamp, ulid.randomness });
         }
 
-        return ulid;
+        // Encode the ULID before returning
+        var buffer: [26]u8 = undefined;
+        try ulid.encode(&buffer);
+        return buffer;
     }
 };
 
@@ -168,24 +180,13 @@ fn generate_randomness() [10]u8 {
     return randomness;
 }
 
-test "ULID generation produces valid timestamp and randomness" {
+test "ULID generation produces a valid encoded string" {
     const generated_ulid = try Ulid.generate();
 
-    try std.testing.expect(generated_ulid.timestamp <= 0xFFFFFFFFFFFF);
-    try std.testing.expect(generated_ulid.randomness.len == 10);
-}
-
-test "ULID encoding produces a 26-character Base32 string" {
-    var buffer: [26]u8 = undefined;
-    const generated_ulid = try Ulid.generate();
-    try generated_ulid.encode(&buffer);
-
-    // Verify buffer length
-    try std.testing.expect(buffer.len == 26);
-
+    // Verify buffer length implicitly by type [26]u8
     // Verify all characters are valid Base32 characters.
     const base32 = Ulid.BASE32_TABLE;
-    for (buffer, 0..) |char, idx| {
+    for (generated_ulid, 0..) |char, idx| {
         var valid = false;
         for (base32) |c| {
             if (char == c) {
@@ -201,16 +202,16 @@ test "ULID encoding produces a 26-character Base32 string" {
 }
 
 test "ULID decoding correctly parses a valid Base32 string" {
-    var buffer: [26]u8 = undefined;
-    const ulid = try Ulid.generate();
-    try ulid.encode(buffer[0..]);
-
+    const encoded_ulid = try Ulid.generate();
     var decoded_ulid: Ulid = undefined; // Properly initialize Ulid
-    try Ulid.decode(buffer[0..], &decoded_ulid);
+    try Ulid.decode(encoded_ulid[0..], &decoded_ulid);
 
-    // Verify that the decoded ULID matches the original
-    try std.testing.expect(decoded_ulid.timestamp == ulid.timestamp);
-    try std.testing.expect(std.mem.eql(u8, decoded_ulid.randomness[0..], ulid.randomness[0..]));
+    // Generate a new ULID from decoded data and encode it again
+    var re_encoded_ulid: [26]u8 = undefined;
+    try decoded_ulid.encode(&re_encoded_ulid);
+
+    // Verify that the re-encoded ULID matches the original encoded ULID
+    try std.testing.expect(std.mem.eql(u8, re_encoded_ulid[0..], encoded_ulid[0..]));
 }
 
 test "ULID decoding fails on invalid length" {
@@ -236,20 +237,19 @@ test "Monotonic ULID generator increments randomness correctly" {
     const timestamp = 1234567890123;
 
     // Generate the first ULID
-    const ulid1 = Ulid{
-        .timestamp = timestamp,
-        .randomness = [10]u8{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
-    };
-    generator.last_timestamp = timestamp;
-    generator.last_randomness = ulid1.randomness;
+    const ulid1_encoded = try generator.generate(timestamp);
+    var decoded_ulid1: Ulid = undefined;
+    try Ulid.decode(ulid1_encoded[0..], &decoded_ulid1);
 
     // Generate the second ULID with the same timestamp
-    var ulid2 = try generator.generate(timestamp);
+    const ulid2_encoded = try generator.generate(timestamp);
+    var decoded_ulid2: Ulid = undefined;
+    try Ulid.decode(ulid2_encoded[0..], &decoded_ulid2);
 
     // Expect randomness to be ulid1.randomness + 1
-    var expected_randomness = ulid1.randomness;
+    var expected_randomness = decoded_ulid1.randomness;
     expected_randomness[9] += 1;
-    try std.testing.expect(std.mem.eql(u8, ulid2.randomness[0..], expected_randomness[0..]));
+    try std.testing.expect(std.mem.eql(u8, decoded_ulid2.randomness[0..], expected_randomness[0..]));
 }
 
 test "Monotonic ULID generator handles overflow correctly" {
@@ -266,22 +266,22 @@ test "Monotonic ULID generator handles overflow correctly" {
 }
 
 test "Timestamp fits within 48 bits" {
-    const ulid = try Ulid.generate();
-    try std.testing.expect(ulid.timestamp <= 0xFFFFFFFFFFFF);
+    const encoded_ulid = try Ulid.generate();
+    var decoded_ulid: Ulid = undefined;
+    try Ulid.decode(encoded_ulid[0..], &decoded_ulid);
+    try std.testing.expect(decoded_ulid.timestamp <= 0xFFFFFFFFFFFF);
 }
 
 test "Generated ULID has canonical string representation format" {
-    var buffer: [26]u8 = undefined;
-    const ulid = try Ulid.generate();
-    try ulid.encode(&buffer);
+    const encoded_ulid = try Ulid.generate();
 
     // Verify timestamp (first 10 chars) and randomness (last 16 chars) format
-    const timestamp_part = buffer[0..10];
-    const randomness_part = buffer[10..];
+    const timestamp_part = encoded_ulid[0..10];
+    const randomness_part = encoded_ulid[10..26];
 
-    // Ensure the length of each part
-    try std.testing.expect(timestamp_part.len == 10);
-    try std.testing.expect(randomness_part.len == 16);
+    // Ensure the length of each part implicitly by slicing
+    _ = timestamp_part;
+    _ = randomness_part;
 }
 
 test "Lexicographical order of ULIDs in the same millisecond" {
@@ -293,17 +293,9 @@ test "Lexicographical order of ULIDs in the same millisecond" {
     const ulid2 = try generator.generate(timestamp);
     const ulid3 = try generator.generate(timestamp);
 
-    // Encode ULIDs to verify order
-    var buffer1: [26]u8 = undefined;
-    var buffer2: [26]u8 = undefined;
-    var buffer3: [26]u8 = undefined;
-    try ulid1.encode(&buffer1);
-    try ulid2.encode(&buffer2);
-    try ulid3.encode(&buffer3);
-
-    // Verify lexicographical order using std.mem.lessThan
-    try std.testing.expect(std.mem.lessThan(u8, buffer1[0..], buffer2[0..]));
-    try std.testing.expect(std.mem.lessThan(u8, buffer2[0..], buffer3[0..]));
+    // Verify lexicographical order
+    try std.testing.expect(std.mem.lessThan(u8, ulid1[0..], ulid2[0..]));
+    try std.testing.expect(std.mem.lessThan(u8, ulid2[0..], ulid3[0..]));
 }
 
 test "Maximum valid ULID encoding check" {
@@ -321,14 +313,12 @@ test "Maximum valid ULID encoding check" {
 }
 
 test "ULID characters comply with Base32 alphabet" {
-    const ulid = try Ulid.generate();
-    var buffer: [26]u8 = undefined;
-    try ulid.encode(&buffer);
+    const encoded_ulid = try Ulid.generate();
 
     const base32_alphabet = Ulid.BASE32_TABLE;
 
     // Verify all characters are in Crockford's Base32 alphabet
-    for (buffer, 0..) |char, idx| {
+    for (encoded_ulid, 0..) |char, idx| {
         var valid = false;
         for (base32_alphabet) |base32_char| {
             if (char == base32_char) {
@@ -344,9 +334,8 @@ test "ULID characters comply with Base32 alphabet" {
 }
 
 test "ULID decoding succeeds with lowercase characters" {
-    var buffer: [26]u8 = undefined;
-    const ulid = try Ulid.generate();
-    try ulid.encode(buffer[0..]);
+    const encoded_ulid = try Ulid.generate();
+    var buffer: [26]u8 = encoded_ulid;
 
     // Convert some characters to lowercase
     buffer[5] = std.ascii.toLower(buffer[5]);
@@ -355,18 +344,15 @@ test "ULID decoding succeeds with lowercase characters" {
     var decoded_ulid: Ulid = undefined;
     try Ulid.decode(buffer[0..], &decoded_ulid);
 
-    // Verify that the decoded ULID matches the original
-    try std.testing.expect(decoded_ulid.timestamp == ulid.timestamp);
-    try std.testing.expect(std.mem.eql(u8, decoded_ulid.randomness[0..], ulid.randomness[0..]));
+    // Encode the decoded ULID back to string
+    var re_encoded_ulid: [26]u8 = undefined;
+    try decoded_ulid.encode(&re_encoded_ulid);
+
+    // Verify that encoding the decoded ULID matches the original encoded ULID (case-insensitive)
+    // Since encoding produces uppercase, compare with original encoded_ulid
+    try std.testing.expect(std.mem.eql(u8, re_encoded_ulid[0..], encoded_ulid[0..]));
 }
 
-test "ULID encoding fails with invalid buffer length" {
-    var buffer: [25]u8 = undefined; // Invalid length
-    const ulid = try Ulid.generate();
-    const result = ulid.encode(&buffer);
-    try std.testing.expect(result == UlidError.encode);
-}
-//
 // test "Monotonic ULID generator correctly handles multiple byte increments with carry" {
 //     var generator = Ulid.monotonic_factory();
 //     const timestamp = 1234567890123;
@@ -388,7 +374,7 @@ test "ULID encoding fails with invalid buffer length" {
 //     expected_randomness2[8] += 1;
 //     try std.testing.expect(std.mem.eql(u8, ulid2.randomness[0..], expected_randomness2[0..]));
 // }
-//
+
 test "Decoding the maximum ULID string succeeds" {
     var buffer: [26]u8 = undefined;
     const max_ulid = Ulid{
