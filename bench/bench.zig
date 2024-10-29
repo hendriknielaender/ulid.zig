@@ -127,7 +127,7 @@ pub fn main() !void {
     // Register benchmarks with descriptive names
     try bench.add("ULID_Generate", benchmark_generate, .{
         .iterations = 10_000,
-        .track_allocations = true,
+        .track_allocations = false,
     });
     // try bench.add("ULID_Generate_Monotonic", benchmark_generate_monotonic, .{
     //     .iterations = 10_000,
@@ -162,17 +162,6 @@ pub fn main() !void {
     //     .track_allocations = false,
     // });
 
-    // Run benchmarks and output results in JSON format
-    try stdout.writeAll("[");
-    var iter = try bench.iterator();
-    var first = true;
-    while (try iter.next()) |step| switch (step) {
-        .progress => |_| {},
-        .result => |x| {
-            defer x.deinit();
-            if (!first) try stdout.writeAll(", ") else first = false;
-            try x.writeJSON(gpa.allocator(), stdout);
-        },
-    };
-    try stdout.writeAll("]\n");
+    try stdout.writeAll("\n");
+    try bench.run(stdout);
 }
