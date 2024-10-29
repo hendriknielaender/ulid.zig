@@ -38,3 +38,39 @@ UUID can be suboptimal for many uses-cases because:
 ## Specification
 For detailed information on the ULID specification, refer to the [ULID Specification](https://github.com/ulid/spec).
 
+## Usage
+This library provides an implementation of ULID (Universally Unique Lexicographically Sortable Identifier) generation and decoding in Zig.
+
+### Generating a ULID
+You can generate a new ULID as a 26-character Crockford's Base32 string:
+
+```zig
+const ulid = try Ulid.generate();
+std.debug.print("Generated ULID: {s}\n", .{ulid});
+```
+This will output a unique, lexicographically sortable string.
+
+### Decoding a ULID
+To decode a ULID string into its components (timestamp and randomness):
+```zig
+const ulid_str = "01AN4Z07BY79KA1307SR9X4MV3";
+var decoded_ulid: Ulid = undefined;
+try Ulid.decode(ulid_str[0..], &decoded_ulid);
+std.debug.print("Decoded ULID: timestamp={d}, randomness={d}\n", .{decoded_ulid.timestamp, decoded_ulid.randomness});
+```
+
+### Monotonic ULID Generation
+To generate ULIDs with guaranteed monotonicity within the same millisecond, use the `UlidGenerator`:
+```zig
+var generator = Ulid.monotonic_factory();
+const ulid = try generator.generate(null); // Passing `null` uses the current timestamp.
+std.debug.print("Generated monotonic ULID: {s}\n", .{ulid});
+```
+This will ensure that if multiple ULIDs are generated in the same millisecond, their randomness will be incremented to preserve order.
+
+### Handling Errors
+This library defines several error types for ULID encoding/decoding, such as:
+
+- `invalid_length` – when the provided ULID string is not 26 characters long.
+- `invalid_character` – when the ULID string contains invalid Base32 characters.
+- `overflow` – when the timestamp exceeds the maximum allowable value (48 bits).
