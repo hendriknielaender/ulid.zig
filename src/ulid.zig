@@ -21,17 +21,13 @@ pub const Ulid = struct {
 
     /// Initializes the Base32 decoding map at compile time.
     fn init_decode_map() [256]u8 {
-        var map: [256]u8 = undefined;
-        // Initialize all entries to 0xFF (invalid)
-        for (map, 0..) |_, idx| {
-            map[idx] = 0xFF;
-        }
-        // Populate valid characters
+        var map: [256]u8 = .{0} ** 256; // Initialize all entries to 0xFF
+        // Populate valid characters and their lowercase equivalents
         for (Ulid.BASE32_TABLE, 0..) |c, idx| {
             map[c] = @intCast(idx);
-            // Map lowercase to uppercase
+            const lower = c | 0x20; // Convert to lowercase if applicable
             if (c >= 'A' and c <= 'Z') {
-                map[c + 0x20] = @intCast(idx);
+                map[lower] = @intCast(idx);
             }
         }
         return map;
@@ -46,7 +42,7 @@ pub const Ulid = struct {
         var ulid_num: u128 = (time << 80);
 
         // Combine randomness into the lower 80 bits
-        for (self.randomness, 0..) |byte, i| {
+        inline for (self.randomness, 0..) |byte, i| {
             const shift: u7 = @intCast(72 - (i * 8));
             const byte_u128: u128 = @intCast(byte);
             ulid_num |= byte_u128 << shift;
@@ -119,21 +115,12 @@ pub const UlidGenerator = struct {
         const current_timestamp = if (provided_timestamp) |ts| ts else try get_current_timestamp();
         var ulid: Ulid = .{ .timestamp = current_timestamp, .randomness = [10]u8{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } };
 
-        // std.debug.print("Current timestamp: {}\n", .{current_timestamp});
-        // std.debug.print("Last timestamp: {}\n", .{self.last_timestamp});
-
         if (current_timestamp == self.last_timestamp) {
-            // std.debug.print("Same millisecond detected. Checking randomness for overflow.\n", .{});
-
-            // Check if all bytes in randomness are 0xFF (indicating overflow)
             const all_max = std.mem.eql(u8, &self.last_randomness, &[10]u8{ 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF });
             if (all_max) {
-                // std.debug.print("Randomness overflow detected. Returning overflow error.\n", .{});
                 return UlidError.overflow;
             }
 
-            // Increment randomness with carry
-            std.debug.print("Incrementing randomness with carry.\n", .{});
             var carry: bool = true;
 
             for (0..10) |j| {
@@ -141,14 +128,10 @@ pub const UlidGenerator = struct {
                 const new_value = self.last_randomness[i] + 1;
                 self.last_randomness[i] = new_value;
                 carry = (new_value == 0);
-
-                // std.debug.print("Randomness at index {d}: {d}\n", .{ i, new_value });
-
                 if (!carry) break;
             }
 
             if (carry) {
-                // std.debug.print("Randomness overflow detected after loop.\n", .{});
                 return UlidError.overflow;
             }
 
@@ -157,11 +140,8 @@ pub const UlidGenerator = struct {
             ulid.randomness = generate_randomness();
             self.last_randomness = ulid.randomness;
             self.last_timestamp = current_timestamp;
-
-            // std.debug.print("Generated new ULID (new timestamp): timestamp={d}, randomness={d}\n", .{ ulid.timestamp, ulid.randomness });
         }
 
-        // Encode the ULID before returning
         var buffer: [26]u8 = undefined;
         try ulid.encode(&buffer);
         return buffer;
@@ -174,9 +154,9 @@ fn get_current_timestamp() !u64 {
     return time_ms;
 }
 
-fn generate_randomness() [10]u8 {
+inline fn generate_randomness() [10]u8 {
     var randomness: [10]u8 = undefined;
-    crypto.random.bytes(randomness[0..]);
+    crypto.random.bytes(&randomness);
     return randomness;
 }
 
