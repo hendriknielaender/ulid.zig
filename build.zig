@@ -2,7 +2,7 @@ const std = @import("std");
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
-    const optimize = b.standardOptimizeOption(.{});
+    const optimize = b.standardOptimizeOption(.{ .preferred_optimize_mode = std.builtin.OptimizeMode.ReleaseFast });
 
     const lib = b.addStaticLibrary(.{
         .name = "ulid",
@@ -36,13 +36,11 @@ pub fn build(b: *std.Build) void {
     const run_step = b.step("run", "Run the app");
     run_step.dependOn(&run_cmd.step);
 
-    const fast = b.standardOptimizeOption(.{ .preferred_optimize_mode = std.builtin.OptimizeMode.ReleaseFast });
-
     const bench = b.addExecutable(.{
         .name = "bench",
         .root_source_file = b.path("bench/bench.zig"),
         .target = target,
-        .optimize = fast,
+        .optimize = optimize,
     });
 
     const opts = .{ .target = target, .optimize = optimize };

@@ -14,20 +14,19 @@ pub const Ulid = struct {
     randomness: [10]u8, // 80 bits
 
     /// Precomputed Crockford's Base32 encoding table
-    const BASE32_TABLE = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+    const BASE32_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 
     /// Precomputed Base32 decoding map
     pub const DECODE_MAP: [256]u8 = Ulid.init_decode_map();
 
     /// Initializes the Base32 decoding map at compile time.
     fn init_decode_map() [256]u8 {
-        var map: [256]u8 = .{0} ** 256; // Initialize all entries to 0xFF
-        // Populate valid characters and their lowercase equivalents
-        for (Ulid.BASE32_TABLE, 0..) |c, idx| {
+        var map: [256]u8 = .{0xFF} ** 256;
+        for (BASE32_ALPHABET, 0..) |c, idx| {
             map[c] = @intCast(idx);
-            const lower = c | 0x20; // Convert to lowercase if applicable
-            if (c >= 'A' and c <= 'Z') {
-                map[lower] = @intCast(idx);
+            const lc = std.ascii.toLower(c);
+            if (c != lc) {
+                map[lc] = @intCast(idx);
             }
         }
         return map;
@@ -52,7 +51,7 @@ pub const Ulid = struct {
         inline for (26, 0..) |_, i| {
             const shift = 125 - (i * 5);
             const index: u8 = @intCast((ulid_num >> shift) & 0x1F);
-            buffer[i] = Ulid.BASE32_TABLE[index];
+            buffer[i] = Ulid.BASE32_ALPHABET[index];
         }
     }
 
@@ -165,7 +164,7 @@ test "ULID generation produces a valid encoded string" {
 
     // Verify buffer length implicitly by type [26]u8
     // Verify all characters are valid Base32 characters.
-    const base32 = Ulid.BASE32_TABLE;
+    const base32 = Ulid.BASE32_ALPHABET;
     for (generated_ulid, 0..) |char, idx| {
         var valid = false;
         for (base32) |c| {
@@ -204,7 +203,7 @@ test "ULID decoding fails on invalid length" {
 test "ULID decoding fails on invalid characters" {
     var buffer: [26]u8 = undefined;
     // Populate with valid characters
-    for (buffer, 0..) |_, i| buffer[i] = Ulid.BASE32_TABLE[i % 32];
+    for (buffer, 0..) |_, i| buffer[i] = Ulid.BASE32_ALPHABET[i % 32];
     // Introduce an invalid character
     buffer[10] = '@';
     var dummy_ulid: Ulid = undefined; // Properly initialize Ulid
@@ -295,7 +294,7 @@ test "Maximum valid ULID encoding check" {
 test "ULID characters comply with Base32 alphabet" {
     const encoded_ulid = try Ulid.generate();
 
-    const base32_alphabet = Ulid.BASE32_TABLE;
+    const base32_alphabet = Ulid.BASE32_ALPHABET;
 
     // Verify all characters are in Crockford's Base32 alphabet
     for (encoded_ulid, 0..) |char, idx| {
@@ -382,4 +381,18 @@ test "ULID encoding and decoding with known values" {
 
     // Verify that encoding the decoded ULID matches the original string
     try std.testing.expect(std.mem.eql(u8, buffer[0..], known_ulid_str[0..]));
+}
+
+test "ULID generation performance benchmark" {
+    const iterations = 1000000;
+    var ulid: [26]u8 = undefined;
+
+    const start_time = std.time.nanoTimestamp();
+    var i: usize = 0;
+    while (i < iterations) : (i += 1) {
+        ulid = try Ulid.generate();
+    }
+    const end_time = std.time.nanoTimestamp();
+    const duration = end_time - start_time;
+    std.debug.print("Generated {d} ULIDs in {d} ns\n", .{ iterations, duration });
 }
