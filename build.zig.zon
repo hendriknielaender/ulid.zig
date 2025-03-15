@@ -1,11 +1,12 @@
 .{
-    .name = "ulid",
+    .name = .ulid,
     .version = "0.0.1",
-    .minimum_zig_version = "0.13.0",
+    .fingerprint = 0xc288c85960d59196,
+    .minimum_zig_version = "0.14.0",
     .dependencies = .{
         .zbench = .{
-            .url = "https://github.com/hendriknielaender/zbench/archive/refs/tags/v0.9.1.tar.gz",
-            .hash = "1220b19e117897a42abc5e58633766a3be92f9ebade400116afea57957bebe41aed0",
+            .url = "https://github.com/hendriknielaender/zbench/archive/refs/tags/v0.9.3.tar.gz",
+            .hash = "zbench-0.9.2-YTdc79DoAADA2YNklaPqRzZxd3JwgRATsHi1cfqEOd_P",
         },
     },
     .paths = .{

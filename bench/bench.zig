@@ -1,6 +1,6 @@
 const std = @import("std");
 const zbench = @import("zbench");
-const Ulid = @import("ulid").Ulid; // Adjust the import path accordingly
+const Ulid = @import("ulid").Ulid;
 
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 

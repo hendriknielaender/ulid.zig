@@ -48,7 +48,7 @@ pub const Ulid = struct {
         }
 
         // Encode into 26 Base32 characters
-        inline for (26, 0..) |_, i| {
+        inline for (0..26, 0..) |_, i| {
             const shift = 125 - (i * 5);
             const index: u8 = @intCast((ulid_num >> shift) & 0x1F);
             buffer[i] = Ulid.BASE32_ALPHABET[index];
@@ -63,7 +63,7 @@ pub const Ulid = struct {
         var ulid_num: u128 = 0;
 
         // Decode each character
-        inline for (26, 0..) |_, i| {
+        inline for (0..26, 0..) |_, i| {
             const c = input[i];
             const val = Ulid.DECODE_MAP[c];
             if (val == 0xFF) return UlidError.invalid_character;
@@ -74,7 +74,7 @@ pub const Ulid = struct {
         out.*.timestamp = @intCast((ulid_num >> 80) & 0xFFFFFFFFFFFF);
 
         // Extract randomness
-        inline for (10, 0..) |_, i| {
+        inline for (0..10, 0..) |_, i| {
             out.*.randomness[i] = @intCast((ulid_num >> (72 - (i * 8))) & 0xFF);
         }
     }
