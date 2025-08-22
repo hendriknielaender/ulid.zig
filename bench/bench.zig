@@ -114,7 +114,9 @@ fn benchmark_compare_lexicographical(_: std.mem.Allocator) void {
 
 /// Main function to register and run all benchmarks.
 pub fn main() !void {
-    const stdout = std.io.getStdOut().writer();
+    var stdout_buffer: [4096]u8 = undefined;
+    var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+    const stdout = &stdout_writer.interface;
 
     var bench = zbench.Benchmark.init(gpa.allocator(), .{});
     defer {
@@ -164,4 +166,5 @@ pub fn main() !void {
 
     try stdout.writeAll("\n");
     try bench.run(stdout);
+    try stdout.flush();
 }
