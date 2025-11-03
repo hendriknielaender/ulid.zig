@@ -1,5 +1,6 @@
 const std = @import("std");
 const crypto = std.crypto;
+const Io = std.Io;
 
 pub const UlidError = error{
     invalid_length,
@@ -80,17 +81,17 @@ pub const Ulid = struct {
     }
 
     /// Generates a new ULID and returns its encoded 26-character Base32 string.
-    pub fn generate() ![26]u8 {
-        var ulid_struct = try generate_ulid_struct();
+    pub fn generate(io: Io) ![26]u8 {
+        var ulid_struct = try generate_ulid_struct(io);
         var buffer: [26]u8 = undefined;
         try ulid_struct.encode(&buffer);
         return buffer;
     }
 
     /// Generates a new ULID struct.
-    fn generate_ulid_struct() !Ulid {
+    fn generate_ulid_struct(io: Io) !Ulid {
         return Ulid{
-            .timestamp = try get_current_timestamp(),
+            .timestamp = try get_current_timestamp(io),
             .randomness = generate_randomness(),
         };
     }
@@ -147,8 +148,10 @@ pub const UlidGenerator = struct {
     }
 };
 
-fn get_current_timestamp() !u64 {
-    const time_ms: u64 = @intCast(std.time.milliTimestamp());
+fn get_current_timestamp(io: Io) !u64 {
+    const time = try Io.Clock.now(.real, io);
+    const time_ns = time.toNanoseconds();
+    const time_ms: u64 = @intCast(@divTrunc(time_ns, std.time.ns_per_ms));
     if (time_ms > 0xFFFFFFFFFFFF) return UlidError.overflow;
     return time_ms;
 }

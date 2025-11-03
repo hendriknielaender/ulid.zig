@@ -3,6 +3,8 @@ const zbench = @import("zbench");
 const Ulid = @import("ulid").Ulid;
 
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+var io_instance: std.Io.Threaded = .init_single_threaded;
+const io = io_instance.io();
 
 /// Utility function to create a known ULID string for parsing benchmarks.
 fn get_known_ulid() [26]u8 {
@@ -16,7 +18,7 @@ fn get_known_ulid() [26]u8 {
 /// Benchmark for ULID generation.
 fn benchmark_generate(_: std.mem.Allocator) void {
     for (0..1000) |_| {
-        const ulid_encoded = Ulid.generate() catch unreachable;
+        const ulid_encoded = Ulid.generate(io) catch unreachable;
         std.mem.doNotOptimizeAway(ulid_encoded); // Prevent compiler optimizations
     }
 }
@@ -43,7 +45,7 @@ fn benchmark_decode(_: std.mem.Allocator) void {
 /// Benchmark for generating and encoding ULIDs.
 fn benchmark_generate_and_encode(_: std.mem.Allocator) void {
     for (0..1000) |_| {
-        const ulid_encoded = Ulid.generate() catch unreachable;
+        const ulid_encoded = Ulid.generate(io) catch unreachable;
         std.mem.doNotOptimizeAway(ulid_encoded); // Prevent compiler optimizations
     }
 }
@@ -60,8 +62,8 @@ fn benchmark_parse(_: std.mem.Allocator) void {
 
 /// Benchmark for ULID string comparison.
 fn benchmark_compare(_: std.mem.Allocator) void {
-    const ulid1 = Ulid.generate() catch unreachable;
-    const ulid2 = Ulid.generate() catch unreachable;
+    const ulid1 = Ulid.generate(io) catch unreachable;
+    const ulid2 = Ulid.generate(io) catch unreachable;
     for (0..1000) |_| {
         const cmp = std.mem.lessThan(u8, ulid1[0..], ulid2[0..]);
         std.mem.doNotOptimizeAway(cmp); // Prevent compiler optimizations
