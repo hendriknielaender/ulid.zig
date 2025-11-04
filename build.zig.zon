@@ -1,8 +1,8 @@
 .{
     .name = .ulid,
-    .version = "0.0.1",
+    .version = "0.0.4",
     .fingerprint = 0xc288c85960d59196,
-    .minimum_zig_version = "0.15.1",
+    .minimum_zig_version = "0.16.0",
     .dependencies = .{
         .zbench = .{
             .url = "git+https://github.com/hendriknielaender/zBench?ref=main#3268a23da82231f1bd2c064de7fdf6fb7056126f",
