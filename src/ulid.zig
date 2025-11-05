@@ -1,5 +1,6 @@
 const std = @import("std");
 const crypto = std.crypto;
+const Io = std.Io;
 
 pub const UlidError = error{
     invalid_length,
@@ -80,26 +81,27 @@ pub const Ulid = struct {
     }
 
     /// Generates a new ULID and returns its encoded 26-character Base32 string.
-    pub fn generate() ![26]u8 {
-        var ulid_struct = try generate_ulid_struct();
+    pub fn generate(io: Io) ![26]u8 {
+        var ulid_struct = try generate_ulid_struct(io);
         var buffer: [26]u8 = undefined;
         try ulid_struct.encode(&buffer);
         return buffer;
     }
 
     /// Generates a new ULID struct.
-    fn generate_ulid_struct() !Ulid {
+    fn generate_ulid_struct(io: Io) !Ulid {
         return Ulid{
-            .timestamp = try get_current_timestamp(),
+            .timestamp = try get_current_timestamp(io),
             .randomness = generate_randomness(),
         };
     }
 
     /// Ensures monotonicity by incrementing randomness if generated within the same millisecond.
-    pub fn monotonic_factory() UlidGenerator {
+    pub fn monotonic_factory(io: Io) UlidGenerator {
         return UlidGenerator{
             .last_timestamp = 0,
             .last_randomness = undefined,
+            .io = io,
         };
     }
 };
@@ -107,11 +109,12 @@ pub const Ulid = struct {
 pub const UlidGenerator = struct {
     last_timestamp: u64 = 0,
     last_randomness: [10]u8 = undefined,
+    io: Io,
 
     /// Generates a ULID ensuring monotonicity within the same millisecond.
     /// Returns the encoded 26-character Base32 string.
     pub fn generate(self: *UlidGenerator, provided_timestamp: ?u64) ![26]u8 {
-        const current_timestamp = if (provided_timestamp) |ts| ts else try get_current_timestamp();
+        const current_timestamp = if (provided_timestamp) |ts| ts else try get_current_timestamp(self.io);
         var ulid: Ulid = .{ .timestamp = current_timestamp, .randomness = [10]u8{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 } };
 
         if (current_timestamp == self.last_timestamp) {
@@ -147,8 +150,10 @@ pub const UlidGenerator = struct {
     }
 };
 
-fn get_current_timestamp() !u64 {
-    const time_ms: u64 = @intCast(std.time.milliTimestamp());
+fn get_current_timestamp(io: Io) !u64 {
+    const time = try Io.Clock.now(.real, io);
+    const time_ns = time.toNanoseconds();
+    const time_ms: u64 = @intCast(@divTrunc(time_ns, std.time.ns_per_ms));
     if (time_ms > 0xFFFFFFFFFFFF) return UlidError.overflow;
     return time_ms;
 }
@@ -160,7 +165,7 @@ inline fn generate_randomness() [10]u8 {
 }
 
 test "ULID generation produces a valid encoded string" {
-    const generated_ulid = try Ulid.generate();
+    const generated_ulid = try Ulid.generate(std.testing.io);
 
     // Verify buffer length implicitly by type [26]u8
     // Verify all characters are valid Base32 characters.
@@ -181,7 +186,7 @@ test "ULID generation produces a valid encoded string" {
 }
 
 test "ULID decoding correctly parses a valid Base32 string" {
-    const encoded_ulid = try Ulid.generate();
+    const encoded_ulid = try Ulid.generate(std.testing.io);
     var decoded_ulid: Ulid = undefined; // Properly initialize Ulid
     try Ulid.decode(encoded_ulid[0..], &decoded_ulid);
 
@@ -212,7 +217,7 @@ test "ULID decoding fails on invalid characters" {
 }
 
 test "Monotonic ULID generator increments randomness correctly" {
-    var generator = Ulid.monotonic_factory();
+    var generator = Ulid.monotonic_factory(std.testing.io);
     const timestamp = 1234567890123;
 
     // Generate the first ULID
@@ -232,7 +237,7 @@ test "Monotonic ULID generator increments randomness correctly" {
 }
 
 test "Monotonic ULID generator handles overflow correctly" {
-    var generator = Ulid.monotonic_factory();
+    var generator = Ulid.monotonic_factory(std.testing.io);
     const timestamp = 1234567890123;
 
     // Set the last randomness to the maximum value
@@ -245,14 +250,14 @@ test "Monotonic ULID generator handles overflow correctly" {
 }
 
 test "Timestamp fits within 48 bits" {
-    const encoded_ulid = try Ulid.generate();
+    const encoded_ulid = try Ulid.generate(std.testing.io);
     var decoded_ulid: Ulid = undefined;
     try Ulid.decode(encoded_ulid[0..], &decoded_ulid);
     try std.testing.expect(decoded_ulid.timestamp <= 0xFFFFFFFFFFFF);
 }
 
 test "Generated ULID has canonical string representation format" {
-    const encoded_ulid = try Ulid.generate();
+    const encoded_ulid = try Ulid.generate(std.testing.io);
 
     // Verify timestamp (first 10 chars) and randomness (last 16 chars) format
     const timestamp_part = encoded_ulid[0..10];
@@ -264,7 +269,7 @@ test "Generated ULID has canonical string representation format" {
 }
 
 test "Lexicographical order of ULIDs in the same millisecond" {
-    var generator = Ulid.monotonic_factory();
+    var generator = Ulid.monotonic_factory(std.testing.io);
     const timestamp = 1234567890123;
 
     // Generate ULIDs within the same millisecond
@@ -292,7 +297,7 @@ test "Maximum valid ULID encoding check" {
 }
 
 test "ULID characters comply with Base32 alphabet" {
-    const encoded_ulid = try Ulid.generate();
+    const encoded_ulid = try Ulid.generate(std.testing.io);
 
     const base32_alphabet = Ulid.BASE32_ALPHABET;
 
@@ -313,7 +318,7 @@ test "ULID characters comply with Base32 alphabet" {
 }
 
 test "ULID decoding succeeds with lowercase characters" {
-    const encoded_ulid = try Ulid.generate();
+    const encoded_ulid = try Ulid.generate(std.testing.io);
     var buffer: [26]u8 = encoded_ulid;
 
     // Convert some characters to lowercase
@@ -387,12 +392,11 @@ test "ULID generation performance benchmark" {
     const iterations = 1000000;
     var ulid: [26]u8 = undefined;
 
-    const start_time = std.time.nanoTimestamp();
+    var timer = try std.time.Timer.start();
     var i: usize = 0;
     while (i < iterations) : (i += 1) {
-        ulid = try Ulid.generate();
+        ulid = try Ulid.generate(std.testing.io);
     }
-    const end_time = std.time.nanoTimestamp();
-    const duration = end_time - start_time;
-    std.debug.print("Generated {d} ULIDs in {d} ns\n", .{ iterations, duration });
+    const duration: u64 = timer.read();
+    std.debug.print("Generated {d} ULIDs in {D}\n", .{ iterations, duration });
 }
