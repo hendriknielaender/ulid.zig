@@ -12,9 +12,9 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: mlugg/setup-zig@v2
         with:
-          version: master
+          version: 0.16.0
       - name: Unit Test
         run: zig build test --summary all

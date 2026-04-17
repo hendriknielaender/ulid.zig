@@ -2,11 +2,12 @@ const std = @import("std");
 const zbench = @import("zbench");
 const Ulid = @import("ulid").Ulid;
 
-var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-var io_instance: std.Io.Threaded = .init_single_threaded;
-const io = io_instance.io();
+const batch_count_max: u32 = 1000;
+const benchmark_iterations: u32 = 10_000;
 
-/// Utility function to create a known ULID string for parsing benchmarks.
+// SAFETY: Assigned in main before any benchmark function reads it.
+var benchmark_io: std.Io = undefined;
+
 fn get_known_ulid() [26]u8 {
     return [_]u8{
         '0', '1', 'A', 'N', '4', 'Z', '0', '7', 'B', 'Y',
@@ -15,158 +16,167 @@ fn get_known_ulid() [26]u8 {
     };
 }
 
-/// Benchmark for ULID generation.
+fn get_known_ulid_struct() Ulid {
+    return .{
+        .timestamp_ms = 1_234_567_890_123,
+        .randomness = .{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 },
+    };
+}
+
+fn benchmark_new(_: std.mem.Allocator) void {
+    for (0..batch_count_max) |_| {
+        const ulid = Ulid.new(benchmark_io) catch |err|
+            std.debug.panic("unexpected error: {}", .{err});
+        std.mem.doNotOptimizeAway(&ulid);
+    }
+}
+
+fn benchmark_init(_: std.mem.Allocator) void {
+    for (0..batch_count_max) |_| {
+        // SAFETY: init writes all fields before any read.
+        var ulid: Ulid = undefined;
+        Ulid.init(&ulid, benchmark_io) catch |err|
+            std.debug.panic("unexpected error: {}", .{err});
+        std.mem.doNotOptimizeAway(&ulid);
+    }
+}
+
 fn benchmark_generate(_: std.mem.Allocator) void {
-    for (0..1000) |_| {
-        const ulid_encoded = Ulid.generate(io) catch unreachable;
-        std.mem.doNotOptimizeAway(ulid_encoded); // Prevent compiler optimizations
+    for (0..batch_count_max) |_| {
+        const ulid_encoded = Ulid.generate(benchmark_io) catch |err|
+            std.debug.panic("unexpected error: {}", .{err});
+        std.mem.doNotOptimizeAway(&ulid_encoded);
     }
 }
 
-/// Benchmark for ULID generation using the monotonic generator.
-fn benchmark_generate_monotonic(_: std.mem.Allocator) void {
-    var generator = Ulid.monotonic_factory();
-    for (0..1000) |_| {
-        const ulid_encoded = generator.generate(null) catch unreachable;
-        std.mem.doNotOptimizeAway(ulid_encoded); // Prevent compiler optimizations
-    }
-}
-
-/// Benchmark for ULID decoding.
-fn benchmark_decode(_: std.mem.Allocator) void {
+fn benchmark_from_string(_: std.mem.Allocator) void {
     const known_ulid = get_known_ulid();
-    for (0..1000) |_| {
+    for (0..batch_count_max) |_| {
+        // SAFETY: decode_from writes all fields before any read.
         var decoded_ulid: Ulid = undefined;
-        Ulid.decode(known_ulid[0..], &decoded_ulid) catch unreachable;
-        std.mem.doNotOptimizeAway(decoded_ulid); // Prevent compiler optimizations
+        Ulid.decode_from(&known_ulid, &decoded_ulid) catch |err|
+            std.debug.panic("unexpected error: {}", .{err});
+        std.mem.doNotOptimizeAway(&decoded_ulid);
     }
 }
 
-/// Benchmark for generating and encoding ULIDs.
-fn benchmark_generate_and_encode(_: std.mem.Allocator) void {
-    for (0..1000) |_| {
-        const ulid_encoded = Ulid.generate(io) catch unreachable;
-        std.mem.doNotOptimizeAway(ulid_encoded); // Prevent compiler optimizations
+fn benchmark_to_str(_: std.mem.Allocator) void {
+    const ulid = get_known_ulid_struct();
+    for (0..batch_count_max) |_| {
+        // SAFETY: encode_to writes all bytes before any read.
+        var encoded: [Ulid.string_len]u8 = undefined;
+        ulid.encode_to(&encoded);
+        std.mem.doNotOptimizeAway(&encoded);
     }
 }
 
-/// Benchmark for ULID parsing.
-fn benchmark_parse(_: std.mem.Allocator) void {
-    const known_ulid_str = get_known_ulid();
-    for (0..1000) |_| {
-        var decoded_ulid: Ulid = undefined;
-        Ulid.decode(known_ulid_str[0..], &decoded_ulid) catch unreachable;
-        std.mem.doNotOptimizeAway(decoded_ulid); // Prevent compiler optimizations
+fn benchmark_to_string(_: std.mem.Allocator) void {
+    const ulid = get_known_ulid_struct();
+    for (0..batch_count_max) |_| {
+        const encoded_ulid = ulid.to_string();
+        std.mem.doNotOptimizeAway(&encoded_ulid);
     }
 }
 
-/// Benchmark for ULID string comparison.
-fn benchmark_compare(_: std.mem.Allocator) void {
-    const ulid1 = Ulid.generate(io) catch unreachable;
-    const ulid2 = Ulid.generate(io) catch unreachable;
-    for (0..1000) |_| {
-        const cmp = std.mem.lessThan(u8, ulid1[0..], ulid2[0..]);
-        std.mem.doNotOptimizeAway(cmp); // Prevent compiler optimizations
+fn benchmark_generator_generate(_: std.mem.Allocator) void {
+    var generator = Ulid.monotonic_factory();
+    for (0..batch_count_max) |_| {
+        const encoded = generator.generate(benchmark_io, .{}) catch |err|
+            std.debug.panic("unexpected error: {}", .{err});
+        std.mem.doNotOptimizeAway(&encoded);
     }
 }
 
-/// Benchmark for ULID parsing with lowercase characters.
+fn benchmark_generator_fixed(_: std.mem.Allocator) void {
+    var generator = Ulid.monotonic_factory();
+    for (0..batch_count_max) |_| {
+        const encoded = generator.generate(benchmark_io, .{
+            .timestamp_ms = 1_234_567_890_123,
+        }) catch |err|
+            std.debug.panic("unexpected error: {}", .{err});
+        std.mem.doNotOptimizeAway(&encoded);
+    }
+}
+
 fn benchmark_decode_lowercase(_: std.mem.Allocator) void {
     const known_ulid = get_known_ulid();
     var buffer: [26]u8 = known_ulid;
-    // Convert some characters to lowercase
     buffer[5] = std.ascii.toLower(buffer[5]);
     buffer[15] = std.ascii.toLower(buffer[15]);
-    for (0..1000) |_| {
+    for (0..batch_count_max) |_| {
+        // SAFETY: decode writes all fields before any read.
         var decoded_ulid: Ulid = undefined;
-        Ulid.decode(buffer[0..], &decoded_ulid) catch unreachable;
-        std.mem.doNotOptimizeAway(decoded_ulid); // Prevent compiler optimizations
+        Ulid.decode(buffer[0..], &decoded_ulid) catch |err|
+            std.debug.panic("unexpected error: {}", .{err});
+        std.mem.doNotOptimizeAway(&decoded_ulid);
     }
 }
 
-/// Benchmark for decoding the maximum ULID string.
 fn benchmark_decode_max_ulid(_: std.mem.Allocator) void {
+    // SAFETY: encode writes all bytes before any read.
     var buffer: [26]u8 = undefined;
-    const max_ulid = Ulid{ .timestamp = 0xFFFFFFFFFFFF, .randomness = [10]u8{ 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF } };
-    max_ulid.encode(&buffer) catch unreachable;
-    for (0..1000) |_| {
+    const max_ulid = Ulid{
+        .timestamp_ms = 0xFFFFFFFFFFFF,
+        .randomness = .{ 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF },
+    };
+    max_ulid.encode(&buffer) catch |err|
+        std.debug.panic("unexpected error: {}", .{err});
+    for (0..batch_count_max) |_| {
+        // SAFETY: decode writes all fields before any read.
         var decoded_ulid: Ulid = undefined;
-        Ulid.decode(buffer[0..], &decoded_ulid) catch unreachable;
-        std.mem.doNotOptimizeAway(decoded_ulid); // Prevent compiler optimizations
+        Ulid.decode(buffer[0..], &decoded_ulid) catch |err|
+            std.debug.panic("unexpected error: {}", .{err});
+        std.mem.doNotOptimizeAway(&decoded_ulid);
     }
 }
 
-/// Benchmark for comparing ULIDs lexicographically.
-fn benchmark_compare_lexicographical(_: std.mem.Allocator) void {
-    var generator = Ulid.monotonic_factory();
-    const timestamp = 1234567890123;
+pub fn main(init: std.process.Init) !void {
+    benchmark_io = init.io;
 
-    // Generate multiple ULIDs with the same timestamp to ensure lex order
-    var ulids: [1000][26]u8 = undefined;
-    for (&ulids) |*ulid| {
-        const encoded = generator.generate(timestamp) catch unreachable;
-        std.mem.copyForwards(u8, ulid, &encoded);
-    }
-
-    for (1..ulids.len) |i| {
-        const cmp = std.mem.lessThan(u8, ulids[i - 1][0..], ulids[i][0..]);
-        std.mem.doNotOptimizeAway(cmp); // Prevent compiler optimizations
-    }
-}
-
-/// Main function to register and run all benchmarks.
-pub fn main() !void {
-    var stdout_buffer: [4096]u8 = undefined;
-    var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
-    const stdout = &stdout_writer.interface;
-
-    var bench = zbench.Benchmark.init(gpa.allocator(), .{});
-    defer {
-        const deinit_status = gpa.deinit();
-        if (deinit_status == .leak) std.debug.panic("Memory leak detected", .{});
-    }
-
+    var bench = zbench.Benchmark.init(init.gpa, .{});
     defer bench.deinit();
 
-    // Register benchmarks with descriptive names
-    try bench.add("ULID_Generate", benchmark_generate, .{
-        .iterations = 10_000,
+    try bench.add("ULID_New", benchmark_new, .{
+        .iterations = benchmark_iterations,
         .track_allocations = false,
     });
-    // try bench.add("ULID_Generate_Monotonic", benchmark_generate_monotonic, .{
-    //     .iterations = 10_000,
-    //     .track_allocations = false,
-    // });
-    // try bench.add("ULID_Decode", benchmark_decode, .{
-    //     .iterations = 10_000,
-    //     .track_allocations = false,
-    // });
-    // try bench.add("ULID_Generate_and_Encode", benchmark_generate_and_encode, .{
-    //     .iterations = 10_000,
-    //     .track_allocations = false,
-    // });
-    // try bench.add("ULID_Parse", benchmark_parse, .{
-    //     .iterations = 10_000,
-    //     .track_allocations = false,
-    // });
-    // try bench.add("ULID_Compare", benchmark_compare, .{
-    //     .iterations = 10_000,
-    //     .track_allocations = false,
-    // });
-    // try bench.add("ULID_Decode_Lowercase", benchmark_decode_lowercase, .{
-    //     .iterations = 10_000,
-    //     .track_allocations = false,
-    // });
-    // try bench.add("ULID_Decode_MaxULID", benchmark_decode_max_ulid, .{
-    //     .iterations = 10_000,
-    //     .track_allocations = false,
-    // });
-    // try bench.add("ULID_Compare_Lexicographical", benchmark_compare_lexicographical, .{
-    //     .iterations = 10_000,
-    //     .track_allocations = false,
-    // });
+    try bench.add("ULID_Init", benchmark_init, .{
+        .iterations = benchmark_iterations,
+        .track_allocations = false,
+    });
+    try bench.add("ULID_Generate", benchmark_generate, .{
+        .iterations = benchmark_iterations,
+        .track_allocations = false,
+    });
+    try bench.add("ULID_FromString", benchmark_from_string, .{
+        .iterations = benchmark_iterations,
+        .track_allocations = false,
+    });
+    try bench.add("ULID_ToStr", benchmark_to_str, .{
+        .iterations = benchmark_iterations,
+        .track_allocations = false,
+    });
+    try bench.add("ULID_ToString", benchmark_to_string, .{
+        .iterations = benchmark_iterations,
+        .track_allocations = false,
+    });
+    try bench.add("ULID_GeneratorGenerate", benchmark_generator_generate, .{
+        .iterations = benchmark_iterations,
+        .track_allocations = false,
+    });
+    try bench.add("ULID_GeneratorFixed", benchmark_generator_fixed, .{
+        .iterations = benchmark_iterations,
+        .track_allocations = false,
+    });
+    try bench.add("ULID_DecodeLowercase", benchmark_decode_lowercase, .{
+        .iterations = benchmark_iterations,
+        .track_allocations = false,
+    });
+    try bench.add("ULID_DecodeMax", benchmark_decode_max_ulid, .{
+        .iterations = benchmark_iterations,
+        .track_allocations = false,
+    });
 
-    try stdout.writeAll("\n");
-    try bench.run(stdout);
-    try stdout.flush();
+    try std.Io.File.stdout().writeStreamingAll(init.io, "\n");
+    try bench.run(init.io, .stdout());
 }
