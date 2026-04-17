@@ -5,6 +5,7 @@ const Ulid = @import("ulid").Ulid;
 const batch_count_max: u32 = 1000;
 const benchmark_iterations: u32 = 10_000;
 
+// SAFETY: Assigned in main before any benchmark function reads it.
 var benchmark_io: std.Io = undefined;
 
 fn get_known_ulid() [26]u8 {
@@ -24,22 +25,26 @@ fn get_known_ulid_struct() Ulid {
 
 fn benchmark_new(_: std.mem.Allocator) void {
     for (0..batch_count_max) |_| {
-        const ulid = Ulid.new(benchmark_io) catch unreachable;
+        const ulid = Ulid.new(benchmark_io) catch |err|
+            std.debug.panic("unexpected error: {}", .{err});
         std.mem.doNotOptimizeAway(&ulid);
     }
 }
 
 fn benchmark_init(_: std.mem.Allocator) void {
     for (0..batch_count_max) |_| {
+        // SAFETY: init writes all fields before any read.
         var ulid: Ulid = undefined;
-        Ulid.init(&ulid, benchmark_io) catch unreachable;
+        Ulid.init(&ulid, benchmark_io) catch |err|
+            std.debug.panic("unexpected error: {}", .{err});
         std.mem.doNotOptimizeAway(&ulid);
     }
 }
 
 fn benchmark_generate(_: std.mem.Allocator) void {
     for (0..batch_count_max) |_| {
-        const ulid_encoded = Ulid.generate(benchmark_io) catch unreachable;
+        const ulid_encoded = Ulid.generate(benchmark_io) catch |err|
+            std.debug.panic("unexpected error: {}", .{err});
         std.mem.doNotOptimizeAway(&ulid_encoded);
     }
 }
@@ -47,8 +52,10 @@ fn benchmark_generate(_: std.mem.Allocator) void {
 fn benchmark_from_string(_: std.mem.Allocator) void {
     const known_ulid = get_known_ulid();
     for (0..batch_count_max) |_| {
+        // SAFETY: decode_from writes all fields before any read.
         var decoded_ulid: Ulid = undefined;
-        Ulid.decode_from(&known_ulid, &decoded_ulid) catch unreachable;
+        Ulid.decode_from(&known_ulid, &decoded_ulid) catch |err|
+            std.debug.panic("unexpected error: {}", .{err});
         std.mem.doNotOptimizeAway(&decoded_ulid);
     }
 }
@@ -56,6 +63,7 @@ fn benchmark_from_string(_: std.mem.Allocator) void {
 fn benchmark_to_str(_: std.mem.Allocator) void {
     const ulid = get_known_ulid_struct();
     for (0..batch_count_max) |_| {
+        // SAFETY: encode_to writes all bytes before any read.
         var encoded: [Ulid.string_len]u8 = undefined;
         ulid.encode_to(&encoded);
         std.mem.doNotOptimizeAway(&encoded);
@@ -73,7 +81,8 @@ fn benchmark_to_string(_: std.mem.Allocator) void {
 fn benchmark_generator_generate(_: std.mem.Allocator) void {
     var generator = Ulid.monotonic_factory();
     for (0..batch_count_max) |_| {
-        const encoded = generator.generate(benchmark_io, .{}) catch unreachable;
+        const encoded = generator.generate(benchmark_io, .{}) catch |err|
+            std.debug.panic("unexpected error: {}", .{err});
         std.mem.doNotOptimizeAway(&encoded);
     }
 }
@@ -83,7 +92,8 @@ fn benchmark_generator_fixed(_: std.mem.Allocator) void {
     for (0..batch_count_max) |_| {
         const encoded = generator.generate(benchmark_io, .{
             .timestamp_ms = 1_234_567_890_123,
-        }) catch unreachable;
+        }) catch |err|
+            std.debug.panic("unexpected error: {}", .{err});
         std.mem.doNotOptimizeAway(&encoded);
     }
 }
@@ -94,22 +104,28 @@ fn benchmark_decode_lowercase(_: std.mem.Allocator) void {
     buffer[5] = std.ascii.toLower(buffer[5]);
     buffer[15] = std.ascii.toLower(buffer[15]);
     for (0..batch_count_max) |_| {
+        // SAFETY: decode writes all fields before any read.
         var decoded_ulid: Ulid = undefined;
-        Ulid.decode(buffer[0..], &decoded_ulid) catch unreachable;
+        Ulid.decode(buffer[0..], &decoded_ulid) catch |err|
+            std.debug.panic("unexpected error: {}", .{err});
         std.mem.doNotOptimizeAway(&decoded_ulid);
     }
 }
 
 fn benchmark_decode_max_ulid(_: std.mem.Allocator) void {
+    // SAFETY: encode writes all bytes before any read.
     var buffer: [26]u8 = undefined;
     const max_ulid = Ulid{
         .timestamp_ms = 0xFFFFFFFFFFFF,
         .randomness = .{ 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF },
     };
-    max_ulid.encode(&buffer) catch unreachable;
+    max_ulid.encode(&buffer) catch |err|
+        std.debug.panic("unexpected error: {}", .{err});
     for (0..batch_count_max) |_| {
+        // SAFETY: decode writes all fields before any read.
         var decoded_ulid: Ulid = undefined;
-        Ulid.decode(buffer[0..], &decoded_ulid) catch unreachable;
+        Ulid.decode(buffer[0..], &decoded_ulid) catch |err|
+            std.debug.panic("unexpected error: {}", .{err});
         std.mem.doNotOptimizeAway(&decoded_ulid);
     }
 }

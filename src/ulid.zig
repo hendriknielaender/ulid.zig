@@ -157,6 +157,7 @@ pub const Ulid = struct {
     }
 
     pub fn new(io: std.Io) !Ulid {
+        // SAFETY: init writes all fields before any read.
         var out: Ulid = undefined;
         try Ulid.init(&out, io);
         return out;
@@ -166,13 +167,14 @@ pub const Ulid = struct {
         const timestamp_ms = try timestamp_now_ms(io);
         const randomness = randomness_generate(io);
 
+        // SAFETY: encode_parts writes all bytes before any read.
         var out: [encoded_len]u8 = undefined;
         encode_parts(timestamp_ms, randomness, &out);
         return out;
     }
 
     pub fn monotonic_factory() UlidGenerator {
-        return .{};
+        return .{ .last_randomness = .{0} ** randomness_len };
     }
 };
 
@@ -183,8 +185,8 @@ pub const GenerateOptions = struct {
 pub const UlidGenerator = struct {
     initialized: bool = false,
     last_timestamp_ms: u64 = 0,
-    // Undefined until initialized is set to true.
-    last_randomness: [randomness_len]u8 = undefined,
+    // SAFETY: Initialized explicitly in monotonic_factory before any read.
+    last_randomness: [randomness_len]u8,
 
     pub fn next_into(
         self: *UlidGenerator,
@@ -234,12 +236,14 @@ pub const UlidGenerator = struct {
     }
 
     pub fn next(self: *UlidGenerator, io: std.Io, options: GenerateOptions) !Ulid {
+        // SAFETY: next_into writes all fields before any read.
         var out: Ulid = undefined;
         try self.next_into(&out, io, options);
         return out;
     }
 
     pub fn generate(self: *UlidGenerator, io: std.Io, options: GenerateOptions) ![encoded_len]u8 {
+        // SAFETY: next_into writes all fields before any read.
         var ulid: Ulid = undefined;
         try self.next_into(&ulid, io, options);
         return ulid.to_string();
