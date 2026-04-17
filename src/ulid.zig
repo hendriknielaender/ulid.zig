@@ -2,9 +2,9 @@ const std = @import("std");
 const assert = std.debug.assert;
 
 const decode_invalid: u8 = 0xFF;
-const encoded_len: usize = 26;
-const randomness_len: usize = 10;
-const timestamp_max: u64 = 0xFFFF_FFFF_FFFF;
+const encoded_len = 26;
+const randomness_len = 10;
+const timestamp_max: u64 = (1 << 48) - 1;
 
 pub const UlidError = error{
     invalid_length,
@@ -15,12 +15,12 @@ pub const UlidError = error{
 };
 
 pub const Ulid = struct {
-    /// Unix timestamp in milliseconds. Only the low 48 bits are valid.
-    timestamp: u64,
+    /// Unix epoch timestamp in milliseconds. Only the low 48 bits are valid.
+    timestamp_ms: u64,
     /// The 80-bit random component.
     randomness: [randomness_len]u8,
 
-    pub const string_len: usize = encoded_len;
+    pub const string_len = encoded_len;
 
     const BASE32_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 
@@ -48,6 +48,7 @@ pub const Ulid = struct {
     }
 
     inline fn encode_char(index: u8) u8 {
+        // Each base32 digit is 5 bits, so the index must be 0–31.
         assert(index < 32);
         return BASE32_ALPHABET[index];
     }
@@ -56,13 +57,15 @@ pub const Ulid = struct {
         comptime assert(index < encoded_len);
 
         const value = DECODE_MAP[input[index]];
+        // Reject characters outside Crockford's Base32 alphabet.
         if (value == decode_invalid) return UlidError.invalid_character;
+        // A valid decode always yields a 5-bit value.
         assert(value < 32);
         return value;
     }
 
     pub fn encode_to(self: *const Ulid, out: *[encoded_len]u8) void {
-        encode_parts(self.timestamp, &self.randomness, out);
+        encode_parts(self.timestamp_ms, self.randomness, out);
     }
 
     pub fn encode(self: *const Ulid, buffer: []u8) !void {
@@ -80,7 +83,10 @@ pub const Ulid = struct {
 
     pub fn decode_from(input: *const [encoded_len]u8, out: *Ulid) !void {
         const digit_0 = try decode_value(input, 0);
+        // The first digit encodes the top 3 bits of the 48-bit timestamp,
+        // so only values 0–7 are valid. Anything else would overflow 48 bits.
         if (digit_0 > 7) return UlidError.overflow;
+        assert(digit_0 <= 7);
 
         const digit_1 = try decode_value(input, 1);
         const digit_2 = try decode_value(input, 2);
@@ -108,16 +114,17 @@ pub const Ulid = struct {
         const digit_24 = try decode_value(input, 24);
         const digit_25 = try decode_value(input, 25);
 
-        const timestamp =
+        const timestamp_ms =
             (@as(u64, digit_0) << 45) | (@as(u64, digit_1) << 40) |
             (@as(u64, digit_2) << 35) | (@as(u64, digit_3) << 30) |
             (@as(u64, digit_4) << 25) | (@as(u64, digit_5) << 20) |
             (@as(u64, digit_6) << 15) | (@as(u64, digit_7) << 10) |
             (@as(u64, digit_8) << 5) | @as(u64, digit_9);
-        assert(timestamp <= timestamp_max);
+        // Paired assertion: the error check above guarantees this.
+        assert(timestamp_ms <= timestamp_max);
 
         out.* = .{
-            .timestamp = timestamp,
+            .timestamp_ms = timestamp_ms,
             .randomness = .{
                 (digit_10 << 3) | (digit_11 >> 2),
                 ((digit_11 & 0x03) << 6) | (digit_12 << 1) | (digit_13 >> 4),
@@ -142,10 +149,11 @@ pub const Ulid = struct {
 
     pub fn init(out: *Ulid, io: std.Io) !void {
         out.* = .{
-            .timestamp = try timestamp_now_ms(io),
+            .timestamp_ms = try timestamp_now_ms(io),
             .randomness = randomness_generate(io),
         };
-        assert(out.timestamp <= timestamp_max);
+        // Paired assertion: timestamp_now_ms already checks, but we assert here too.
+        assert(out.timestamp_ms <= timestamp_max);
     }
 
     pub fn new(io: std.Io) !Ulid {
@@ -155,11 +163,11 @@ pub const Ulid = struct {
     }
 
     pub fn generate(io: std.Io) ![encoded_len]u8 {
-        const timestamp = try timestamp_now_ms(io);
+        const timestamp_ms = try timestamp_now_ms(io);
         const randomness = randomness_generate(io);
 
         var out: [encoded_len]u8 = undefined;
-        encode_parts(timestamp, &randomness, &out);
+        encode_parts(timestamp_ms, randomness, &out);
         return out;
     }
 
@@ -174,7 +182,8 @@ pub const GenerateOptions = struct {
 
 pub const UlidGenerator = struct {
     initialized: bool = false,
-    last_timestamp: u64 = 0,
+    last_timestamp_ms: u64 = 0,
+    // Undefined until initialized is set to true.
     last_randomness: [randomness_len]u8 = undefined,
 
     pub fn next_into(
@@ -188,29 +197,40 @@ pub const UlidGenerator = struct {
         else
             try timestamp_now_ms(io);
         if (timestamp_ms > timestamp_max) return UlidError.overflow;
+        // Blatantly true assertion: documents the invariant after the error check.
+        assert(timestamp_ms <= timestamp_max);
 
         if (self.initialized) {
-            if (timestamp_ms == self.last_timestamp) {
+            if (timestamp_ms == self.last_timestamp_ms) {
+                // Same millisecond: increment randomness for monotonicity.
                 if (randomness_increment(&self.last_randomness)) {
                     out.* = .{
-                        .timestamp = timestamp_ms,
+                        .timestamp_ms = timestamp_ms,
                         .randomness = self.last_randomness,
                     };
+                    assert(out.timestamp_ms <= timestamp_max);
                     return;
                 } else {
+                    // All 80 randomness bits are 0xFF: cannot increment.
                     return UlidError.overflow;
                 }
+            } else {
+                // Different millisecond: generate fresh randomness.
+                self.last_randomness = randomness_generate(io);
             }
+        } else {
+            // First call: generate fresh randomness.
+            self.last_randomness = randomness_generate(io);
         }
 
         self.initialized = true;
-        self.last_timestamp = timestamp_ms;
-        self.last_randomness = randomness_generate(io);
+        self.last_timestamp_ms = timestamp_ms;
 
         out.* = .{
-            .timestamp = timestamp_ms,
+            .timestamp_ms = timestamp_ms,
             .randomness = self.last_randomness,
         };
+        assert(out.timestamp_ms <= timestamp_max);
     }
 
     pub fn next(self: *UlidGenerator, io: std.Io, options: GenerateOptions) !Ulid {
@@ -228,6 +248,7 @@ pub const UlidGenerator = struct {
 
 fn timestamp_now_ms(io: std.Io) !u64 {
     const time_ms_i64 = std.Io.Timestamp.now(io, .real).toMilliseconds();
+    // A negative wall-clock time is nonsensical for ULID.
     if (time_ms_i64 < 0) return UlidError.overflow;
 
     const time_ms: u64 = @intCast(time_ms_i64);
@@ -242,43 +263,48 @@ inline fn randomness_generate(io: std.Io) [randomness_len]u8 {
 }
 
 fn randomness_increment(randomness: *[randomness_len]u8) bool {
-    var index: usize = randomness_len;
+    // Scan from least-significant byte looking for a byte that can carry.
+    var index: u8 = randomness_len;
     while (index > 0) {
         index -= 1;
-        if (randomness[index] == 0xFF) {
-            continue;
-        } else {
+        if (randomness[index] < 0xFF) {
+            // This byte can be incremented without wrapping.
             randomness[index] += 1;
+            assert(randomness[index] <= 0xFF);
 
-            var suffix: usize = index + 1;
+            // All bytes to the right carried from 0xFF to 0x00.
+            var suffix: u8 = index + 1;
             while (suffix < randomness_len) : (suffix += 1) {
                 randomness[suffix] = 0;
             }
             return true;
+        } else {
+            // Byte is 0xFF: carry propagates left.
+            assert(randomness[index] == 0xFF);
         }
     }
+    // All bytes are 0xFF: cannot increment without overflow.
     return false;
 }
 
 fn encode_parts(
-    timestamp: u64,
-    randomness: *const [randomness_len]u8,
+    timestamp_ms: u64,
+    randomness_bytes: [randomness_len]u8,
     out: *[encoded_len]u8,
 ) void {
-    assert(timestamp <= timestamp_max);
+    // The timestamp must fit in 48 bits.
+    assert(timestamp_ms <= timestamp_max);
 
-    const randomness_bytes = randomness.*;
-
-    out[0] = Ulid.encode_char(@intCast((timestamp >> 45) & 0x1F));
-    out[1] = Ulid.encode_char(@intCast((timestamp >> 40) & 0x1F));
-    out[2] = Ulid.encode_char(@intCast((timestamp >> 35) & 0x1F));
-    out[3] = Ulid.encode_char(@intCast((timestamp >> 30) & 0x1F));
-    out[4] = Ulid.encode_char(@intCast((timestamp >> 25) & 0x1F));
-    out[5] = Ulid.encode_char(@intCast((timestamp >> 20) & 0x1F));
-    out[6] = Ulid.encode_char(@intCast((timestamp >> 15) & 0x1F));
-    out[7] = Ulid.encode_char(@intCast((timestamp >> 10) & 0x1F));
-    out[8] = Ulid.encode_char(@intCast((timestamp >> 5) & 0x1F));
-    out[9] = Ulid.encode_char(@intCast(timestamp & 0x1F));
+    out[0] = Ulid.encode_char(@intCast((timestamp_ms >> 45) & 0x1F));
+    out[1] = Ulid.encode_char(@intCast((timestamp_ms >> 40) & 0x1F));
+    out[2] = Ulid.encode_char(@intCast((timestamp_ms >> 35) & 0x1F));
+    out[3] = Ulid.encode_char(@intCast((timestamp_ms >> 30) & 0x1F));
+    out[4] = Ulid.encode_char(@intCast((timestamp_ms >> 25) & 0x1F));
+    out[5] = Ulid.encode_char(@intCast((timestamp_ms >> 20) & 0x1F));
+    out[6] = Ulid.encode_char(@intCast((timestamp_ms >> 15) & 0x1F));
+    out[7] = Ulid.encode_char(@intCast((timestamp_ms >> 10) & 0x1F));
+    out[8] = Ulid.encode_char(@intCast((timestamp_ms >> 5) & 0x1F));
+    out[9] = Ulid.encode_char(@intCast(timestamp_ms & 0x1F));
 
     out[10] = Ulid.encode_char(randomness_bytes[0] >> 3);
     out[11] = Ulid.encode_char(((randomness_bytes[0] & 0x07) << 2) | (randomness_bytes[1] >> 6));
@@ -379,7 +405,7 @@ test "Monotonic ULID generator handles overflow correctly" {
     const timestamp = 1234567890123;
 
     generator.initialized = true;
-    generator.last_timestamp = timestamp;
+    generator.last_timestamp_ms = timestamp;
     generator.last_randomness = .{
         0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
         0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
@@ -388,7 +414,7 @@ test "Monotonic ULID generator handles overflow correctly" {
     const result = generator.generate(std.testing.io, .{ .timestamp_ms = timestamp });
     try std.testing.expect(result == UlidError.overflow);
     try std.testing.expect(generator.initialized);
-    try std.testing.expect(generator.last_timestamp == timestamp);
+    try std.testing.expect(generator.last_timestamp_ms == timestamp);
     try std.testing.expect(std.mem.eql(
         u8,
         &generator.last_randomness,
@@ -404,8 +430,8 @@ test "Monotonic ULID generator handles timestamp zero on first use" {
     try Ulid.decode(&encoded, &decoded);
 
     try std.testing.expect(generator.initialized);
-    try std.testing.expect(generator.last_timestamp == 0);
-    try std.testing.expect(decoded.timestamp == 0);
+    try std.testing.expect(generator.last_timestamp_ms == 0);
+    try std.testing.expect(decoded.timestamp_ms == 0);
     try std.testing.expect(std.mem.eql(u8, &decoded.randomness, &generator.last_randomness));
 }
 
@@ -413,7 +439,7 @@ test "Timestamp fits within 48 bits" {
     const encoded_ulid = try Ulid.generate(std.testing.io);
     var decoded_ulid: Ulid = undefined;
     try Ulid.decode(encoded_ulid[0..], &decoded_ulid);
-    try std.testing.expect(decoded_ulid.timestamp <= 0xFFFFFFFFFFFF);
+    try std.testing.expect(decoded_ulid.timestamp_ms <= 0xFFFFFFFFFFFF);
 }
 
 test "Generated ULID has canonical string representation format" {
@@ -440,7 +466,7 @@ test "Lexicographical order of ULIDs in the same millisecond" {
 
 test "Maximum valid ULID encoding check" {
     var max_ulid = Ulid{
-        .timestamp = 0xFFFFFFFFFFFF,
+        .timestamp_ms = 0xFFFFFFFFFFFF,
         .randomness = [10]u8{ 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF },
     };
 
@@ -492,7 +518,7 @@ test "Monotonic ULID generator handles carry" {
     const timestamp = 1234567890123;
 
     generator.initialized = true;
-    generator.last_timestamp = timestamp;
+    generator.last_timestamp_ms = timestamp;
     generator.last_randomness = .{
         0x00, 0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0xFF, 0xFE,
@@ -511,7 +537,7 @@ test "Monotonic ULID generator handles carry" {
 test "Decoding the maximum ULID string succeeds" {
     var buffer: [26]u8 = undefined;
     const max_ulid = Ulid{
-        .timestamp = 0xFFFFFFFFFFFF,
+        .timestamp_ms = 0xFFFFFFFFFFFF,
         .randomness = [10]u8{ 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF },
     };
     try max_ulid.encode(&buffer);
@@ -519,7 +545,7 @@ test "Decoding the maximum ULID string succeeds" {
     var decoded_ulid: Ulid = undefined;
     try Ulid.decode(buffer[0..], &decoded_ulid);
 
-    try std.testing.expect(decoded_ulid.timestamp == max_ulid.timestamp);
+    try std.testing.expect(decoded_ulid.timestamp_ms == max_ulid.timestamp_ms);
     try std.testing.expect(std.mem.eql(u8, decoded_ulid.randomness[0..], max_ulid.randomness[0..]));
 }
 

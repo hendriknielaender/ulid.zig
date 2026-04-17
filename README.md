@@ -72,7 +72,7 @@ var decoded_ulid: Ulid = undefined;
 try Ulid.decode(ulid_str[0..], &decoded_ulid);
 std.debug.print(
     "Decoded ULID: timestamp={d}, randomness={any}\n",
-    .{ decoded_ulid.timestamp, decoded_ulid.randomness },
+    .{ decoded_ulid.timestamp_ms, decoded_ulid.randomness },
 );
 ```
 
