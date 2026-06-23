@@ -34,7 +34,7 @@ pub const Ulid = struct {
             assert(timestamp_max == (1 << 48) - 1);
         }
 
-        var map: [256]u8 = .{decode_invalid} ** 256;
+        var map: [256]u8 = @splat(decode_invalid);
         for (BASE32_ALPHABET, 0..) |c, idx| {
             assert(idx < 32);
             map[c] = @intCast(idx);
@@ -174,7 +174,7 @@ pub const Ulid = struct {
     }
 
     pub fn monotonic_factory() UlidGenerator {
-        return .{ .last_randomness = .{0} ** randomness_len };
+        return .{ .last_randomness = @splat(0) };
     }
 };
 
@@ -376,7 +376,7 @@ test "ULID decoding fails on invalid characters" {
 }
 
 test "ULID decoding fails on overflow" {
-    var buffer = [_]u8{'8'} ** Ulid.string_len;
+    var buffer: [Ulid.string_len]u8 = @splat('8');
     var decoded: Ulid = undefined;
 
     const result = Ulid.decode(&buffer, &decoded);
