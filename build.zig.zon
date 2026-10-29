@@ -2,11 +2,11 @@
     .name = .ulid,
     .version = "0.0.5",
     .fingerprint = 0xc288c85960d59196,
-    .minimum_zig_version = "0.16.0",
+    .minimum_zig_version = "0.17.0",
     .dependencies = .{
         .zbench = .{
-            .url = "https://github.com/hendriknielaender/zbench/archive/refs/tags/v0.13.0.tar.gz",
-            .hash = "zbench-0.13.0-YTdc7xVBAQCCMC-IdLLuotBeiNNNm8k9Pi2V4VYqrwfI",
+            .url = "https://github.com/hendriknielaender/zBench/archive/refs/tags/v0.15.0.tar.gz",
+            .hash = "zbench-0.15.0-YTdc77dOAQAb4XlsyLbAG1h5Jtcl4jtVhiTKL-16vTfo",
         },
     },
     .paths = .{
